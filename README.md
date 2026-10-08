@@ -1,45 +1,52 @@
-# Lovehands Spot Check Website
+# Lovehands Care Services – Spot Check Portal
 
-A secure, role-based Spot Check questionnaire system for Lovehands Care Services Limited, using Flask, SQLAlchemy and PostgreSQL (SQLite for local development).
+A Flask website for assessor logins, authenticated questionnaire submissions, and administrator review of spot checks. The fields and questions follow the supplied Spot Check Form. The original document's **Section One** has a heading but no questions; this project leaves that section empty rather than inventing requirements.
 
-## Lovehands branding
+## Features
+- Individual assessor and administrator accounts; hashed passwords and role-based access.
+- Assessor-only creation (admins can also submit) with recorded responses, comments, visit details, action plan and typed signature.
+- Admin dashboard, search/filter, per-record details, browser print-to-PDF and CSV export.
+- Admin creation/deactivation of accounts. Login activity, views and exports recorded in an audit log.
+- CSRF protection, secure cookie settings, basic throttling and security headers.
 
-The official Lovehands logo is included at `static/logo.png` and appears in the header on all website pages, plus the login and administrator setup screens. The website theme uses plum and green to complement the logo. When updating the brand image, replace that file while keeping its filename.
-
-## First-time administrator login
-
-- Username: `admin`
-- Password: **You create this during setup. There is no preset password.**
-- Initial setup page: `/setup`
-- To prevent unauthorised registration, set the `SETUP_TOKEN` environment variable to a long secret first. Only someone who knows that token can create the initial administrator. After creating the admin account, `/setup` is disabled.
-
-## Deploy to Render from GitHub
-
-1. Upload the contents of this folder to a new **private GitHub repository**. Do not commit `.env` or any database files.
-2. On Render choose **New > Blueprint** and select the repository. `render.yaml` configures a Python web service and PostgreSQL database. Review pricing and resources before deploying.
-3. When prompted, set `SETUP_TOKEN` to a unique random value (ideally 32+ characters).
-4. Render automatically supplies a generated `SECRET_KEY` and the PostgreSQL connection string. Use `COOKIE_SECURE=1` for HTTPS.
-5. Open `https://YOUR-SERVICE.onrender.com/setup`, enter the setup token, your name, and choose an admin password with at least 12 characters.
-6. Visit `/login`, sign in as `admin`, and add assessor accounts in **Users**.
-7. Assessors log in, complete spot checks, submit, and see their own records. Admins see all submitted records in **Dashboard** and can export the summary CSV. Individual records can be printed/saved as PDF from a browser.
-
-## Local testing
-
-```sh
+## Start locally
+```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
 pip install -r requirements.txt
-export SECRET_KEY="$(python -c 'import secrets;print(secrets.token_hex(32))')"
-export SETUP_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(32))')"
-flask --app app run
+cp .env.example .env
+# IMPORTANT: edit .env; for localhost use SESSION_COOKIE_SECURE=0
+python -m flask --app app init-db
+python -m flask --app app create-admin
+python -m flask --app app run
 ```
+Open http://127.0.0.1:5000 and sign in as the admin you created. Create assessor accounts under **Users**.
 
-Open `http://127.0.0.1:5000/setup` and use the generated setup token.
+To create a production secret:
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+Put that value in `SECRET_KEY` in your hosting provider's secrets/environment configuration, **not** in a public repository.
 
-## Important security and compliance notes
+## Hosting & production requirements
+- Deploy on a Python hosting service with HTTPS, persistent private disk for SQLite, and secure backups. Example run command: `gunicorn --workers 2 --bind 0.0.0.0:$PORT app:app`.
+- Run `flask --app app init-db` on first deployment and `flask --app app create-admin` securely via console/SSH. Do not create a public default account.
+- Keep `SESSION_COOKIE_SECURE=1` when accessed over HTTPS. Use a stable strong `SECRET_KEY`. Set `TRUST_PROXY=1` only with a trusted single proxy and configured forwarded headers.
+- **SQLite is intended for small-scale single-instance deployment.** For multiple app instances or high traffic, migrate to a managed PostgreSQL database with a migration plan and database-backed/shared login rate limiting.
+- Do not deploy real service-user data without a data-protection review, encrypted backups, access-review process, documented retention/deletion policy, vendor data-processing terms, and appropriate UK GDPR security measures.
+- Login rate limiting uses process memory; use Redis/shared storage for multi-worker production enforcement.
+- No self-service password reset is provided: account recovery currently needs administrator maintenance through a secure server console. Add MFA and secure password reset before broad rollout.
+- The typed signature is a declaration, **not** a cryptographically verified e-signature.
+- Exported CSVs contain sensitive care information and require secure handling. Exercise caution opening CSV in spreadsheet software; protect against formula injection before allowing unrestricted external input.
 
-- Use HTTPS, a hosted PostgreSQL database and unique passwords. SQLite is for local development and is not a durable database on Render's ephemeral filesystem.
-- Confidential service-user information must not be committed to GitHub or stored in free-text GitHub issues.
-- This is a functional starter application, not an independently security-audited production medical/care record system. Before operational use, set up backups, a data retention and deletion policy, an access review process, a privacy notice, appropriate UK GDPR security procedures, incident response and hosting / processor agreements. For care records, confirm where data is stored and appropriate UK GDPR safeguards.
-- Automated email password resets, advanced MFA, audit event logs, role-level reporting, full CSV response export and signed-image capture are not included in this version. Admins can issue new passwords via User Management.
-- First section question wording was restored as a practical default because the provided DOCX extract did not contain readable text for that section. Review those four questions against your authoritative original form before real-world use.
+## File map
+`app.py`: backend and database models; `templates/`: pages; `static/style.css`: design; `instance/`: local database (keep private).
+
+
+## Two assessment forms (updated October 2026)
+
+After login, staff can visit `/forms` to choose **Spot Check** or **Staff Practical Medication Competency**. Both forms are persisted in separate SQLite tables, visible in the admin dashboard, and exportable as separate CSV files. Previous spot-check records remain intact.
+
+**Database migration:** The app uses `CREATE TABLE IF NOT EXISTS` for the new `medication_assessments` table. After deploying this version, run `flask --app app init-db` on the *same persistent database* used by your deployed service. Do not delete or replace the original database. If using Render Free without persistent disk, form data and accounts are not durable. Do not enter real care data until persistent encrypted storage, backups, and appropriate access/privacy controls are set up.
+
+This version automatically performs its non-destructive `CREATE TABLE IF NOT EXISTS` schema migration at process startup. Do not change `DATABASE_PATH` when upgrading an existing persistent installation. Back up the database first.
